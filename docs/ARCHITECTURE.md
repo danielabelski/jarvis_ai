@@ -59,6 +59,7 @@ approval_request{data,run_id} · error · done{timing}
 | `/api/chat` | typed chat turn on the shared voice session |
 | `/api/machines` | host psutil stats + remote workers from config |
 | `/api/usage` | local token/char tally + ElevenLabs quota (needs user_read on the key) |
+| `/api/summon` | broadcasts a holographic media panel (`{media, src, title, position}` or `{action:"dismiss"}`) to every connected HUD over its WebSocket — this is what the bundled `hud_display` Hermes plugin calls |
 | port 9443 (separate app) | TLS reverse proxy of the Hermes dashboard with WebSocket bridge and frame-header stripping, so the HTTPS HUD can iframe it |
 
 ## Auth model
@@ -94,4 +95,18 @@ behind Hermes; the second is the Whisper model size.
    `sys.prefix` (`site.getsitepackages()` misses the venv) and
    `os.add_dll_directory` them before importing ctranslate2.
 8. **Startup**: listeners open immediately; the local Whisper fallback warms
-   in the background (a restart leaves only ~10-15 s of launchd respawn gap).
+   in the background, exactly once and race-locked (the startup hook fires
+   once per uvicorn listener — concurrent recorder inits crash lifespans).
+9. **FD limits**: launchd grants 256 file descriptors by default and the
+   server idles at ~244 — set NumberOfFiles=8192 in the plist (shipped) and
+   close streaming responses in `finally` (done) or it dies within hours.
+10. **Orphaned STT children steal ports**: the recorder's child process has a
+    cmdline without "server.py", survives naive pkills, and can inherit the
+    listen socket — the next spawn then fails its first bind and uvicorn's
+    SystemExit cancels ALL listeners. Stop by PORT ownership
+    (`lsof -ti tcp:PORT -sTCP:LISTEN | xargs kill -9`) — shipped in
+    `scripts/jarvis-stop.sh`.
+11. **Agent tool-choice**: SOUL.md prose cannot redirect the model away from
+    attractive built-in tools (it kept "showing" videos in its own invisible
+    browser); a first-class plugin tool with an explicit schema wins
+    instantly. Hence `hermes-plugin/hud_display`.

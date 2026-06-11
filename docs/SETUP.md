@@ -44,9 +44,15 @@ For the HUD's quota bar, give the key the **User → Read** permission.
 ```bash
 cd server
 python3 -m venv .venv
-.venv/bin/pip install fastapi uvicorn requests pyyaml numpy anthropic RealtimeSTT websockets psutil
+.venv/bin/pip install fastapi uvicorn requests pyyaml numpy anthropic \
+    RealtimeSTT faster-whisper silero-vad websockets psutil
 cp config/server.example.yaml config/server.yaml
 ```
+
+Note: `faster-whisper` and `silero-vad` are REQUIRED — recent RealtimeSTT
+releases treat them as optional extras and fail at runtime without them
+(silently for VAD, loudly for the engine). The first start takes 60–90 s
+(torch import + model download); subsequent starts are faster.
 
 Edit `config/server.yaml`: set `voice.voice_id`, and adjust the `machines:`
 list (or delete it). The first run downloads the Whisper model (~460 MB for
@@ -140,6 +146,23 @@ whenever the GPU machine is off. For auto-start at Windows logon, drop a
 
 **Phone app feel**: open the HUD in Safari/Chrome on your phone →
 Share → Add to Home Screen.
+
+**Let the agent put things on your screen** (the showstopper): install the
+bundled Hermes plugin so "show me a video of X on screen" makes holographic
+media panels materialize on every open HUD:
+
+```bash
+cp -R hermes-plugin/hud_display ~/.hermes/plugins/hud_display
+# edit ~/.hermes/plugins/hud_display/schemas.py: replace YOUR_HOST
+hermes plugins enable hud_display     # repeat with -p <profile> if you use profiles
+# restart your hermes gateway
+```
+
+The plugin needs `JARVIS_HUD_TOKEN` in `~/.hermes/.env` (same token as the
+HUD). Directory name must stay a valid Python module name — hyphens silently
+break plugin discovery. The agent then has `hud_display` / `hud_dismiss`
+tools; YouTube links play as embedded video, `position` left/right lets it
+fly in multiple panels from different vectors.
 
 ## 6. Verify everything
 

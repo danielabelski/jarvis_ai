@@ -10,9 +10,14 @@
      2. If the project lives on an external drive, grant Full Disk Access to
         Python.app (System Settings > Privacy & Security > Full Disk Access >
         .../Python.framework/Versions/3.x/Resources/Python.app).
-     3. Log paths MUST be on the internal disk or launchd fails with EX_CONFIG. -->
+     3. Log paths MUST be on the internal disk or launchd fails with EX_CONFIG.
+     4. The FD limits below are REQUIRED: launchd's default is 256 and the
+        server idles at ~244 open files (Python libs + the Whisper model) —
+        without these keys it dies with "Too many open files" within hours. -->
 <plist version="1.0"><dict>
   <key>Label</key><string>com.jarvis.voice</string>
+  <key>SoftResourceLimits</key><dict><key>NumberOfFiles</key><integer>8192</integer></dict>
+  <key>HardResourceLimits</key><dict><key>NumberOfFiles</key><integer>8192</integer></dict>
   <key>ProgramArguments</key><array>
     <string>/PATH/TO/voice-pipeline/.venv/bin/python</string>
     <string>/PATH/TO/voice-pipeline/server.py</string>

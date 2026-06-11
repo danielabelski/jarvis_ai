@@ -233,8 +233,16 @@ class HermesAPI:
             json={"input": input_text}, stream=True, timeout=(10, timeout),
         )
         if resp.status_code >= 400:
+            resp.close()
             raise RuntimeError(f"Hermes session chat HTTP {resp.status_code}: {resp.text[:300]}")
         resp.encoding = "utf-8"  # SSE has no charset header; requests would assume latin-1 (mojibake)
+        try:
+            yield from self._parse_sse(resp)
+        finally:
+            resp.close()  # leaked FDs killed the server once (launchd limit is tiny)
+
+    @staticmethod
+    def _parse_sse(resp) -> Iterator[tuple[str, str]]:
         event_name = ""
         for raw in resp.iter_lines(decode_unicode=True):
             if raw is None:
@@ -451,13 +459,17 @@ class VoicePipelineServer:
             json=payload, stream=True, timeout=120,
         )
         if response.status_code >= 400:
+            response.close()
             raise RuntimeError(f"ElevenLabs HTTP {response.status_code}: {response.text[:1000]}")
-        for chunk in response.iter_content(chunk_size=4096):
-            if not chunk:
-                continue
-            if timing.first_tts_audio_byte_monotonic is None:
-                timing.first_tts_audio_byte_monotonic = time.perf_counter()
-            yield chunk
+        try:
+            for chunk in response.iter_content(chunk_size=4096):
+                if not chunk:
+                    continue
+                if timing.first_tts_audio_byte_monotonic is None:
+                    timing.first_tts_audio_byte_monotonic = time.perf_counter()
+                yield chunk
+        finally:
+            response.close()  # barge-in cancels mid-stream; don't leak the connection
 
     # ------------------------------------------------------------- Turn flow
 
@@ -614,13 +626,22 @@ class VoicePipelineServer:
 
 load_env()
 CFG = load_config()
+HERMES = HermesAPI(CFG)   # lightweight API client - independent of the STT pipeline
 PIPELINE: VoicePipelineServer | None = None
 
 
+_PIPELINE_LOCK = threading.Lock()
+
+
 def get_pipeline() -> VoicePipelineServer:
+    """Lock prevents the four uvicorn listeners' startup hooks from racing
+    into concurrent recorder inits (which crashed three of the four lifespans
+    and silently killed the TLS ports)."""
     global PIPELINE
     if PIPELINE is None:
-        PIPELINE = VoicePipelineServer(CFG)
+        with _PIPELINE_LOCK:
+            if PIPELINE is None:
+                PIPELINE = VoicePipelineServer(CFG)
     return PIPELINE
 
 
@@ -629,12 +650,25 @@ app = FastAPI(title="Hermes Voice Pipeline")
 
 @app.on_event("startup")
 async def warm_pipeline() -> None:
-    """Warm the local Whisper fallback in the BACKGROUND — listeners open
-    immediately (the GPU worker handles STT while the local model loads)."""
+    """Warm the local Whisper fallback in the BACKGROUND, exactly once (this
+    hook fires once per uvicorn listener — there are four), and never let a
+    warm failure take a listener down."""
+    global _WARM_STARTED
+    if _WARM_STARTED:
+        return
+    _WARM_STARTED = True
+
     async def warm() -> None:
-        await asyncio.to_thread(get_pipeline)
-        print("STT pipeline warmed.", flush=True)
+        try:
+            await asyncio.to_thread(get_pipeline)
+            print("STT pipeline warmed.", flush=True)
+        except Exception as exc:
+            print(f"STT warm failed (remote STT still available): {exc}", flush=True)
+
     asyncio.get_running_loop().create_task(warm())
+
+
+_WARM_STARTED = False
 
 
 # ------------------------------------------------------------------ Auth
@@ -702,7 +736,7 @@ async def hermes_proxy(path: str, request: Request) -> Response:
     target = "/" + path
     if not _proxy_allowed(request.method, target):
         return Response(status_code=403, content="path not allowed")
-    hermes = get_pipeline().hermes
+    hermes = HERMES
     body = await request.body()
     params = dict(request.query_params)
 
@@ -725,29 +759,34 @@ async def hud_chat(request: Request) -> JSONResponse:
     conversation = body.get("conversation") or (CFG.get("hermes") or {}).get("conversation", "jarvis-main")
     if not text:
         return JSONResponse({"error": "empty input"}, status_code=400)
-    pipeline = get_pipeline()
     out: dict = {"text": "", "tools": [], "run_id": None}
 
     def run_sync() -> None:
-        sid = pipeline.hermes.get_session_id(conversation)
         timeout = float((CFG.get("hermes") or {}).get("timeout", 240))
+
+        def consume(sid: str) -> list[str]:
+            parts: list[str] = []
+            for kind, value in HERMES.chat_stream_events(sid, text, timeout):
+                if kind == "text":
+                    parts.append(value)
+                elif kind == "tool":
+                    out["tools"].append(json.loads(value))
+                elif kind == "run":
+                    out["run_id"] = value
+                elif kind == "final":
+                    info = json.loads(value)
+                    if info.get("content"):
+                        parts = [info["content"]]
+            return parts
+
         try:
-            events = pipeline.hermes.chat_stream_events(sid, text, timeout)
-        except RuntimeError:
-            sid2 = pipeline.hermes.get_session_id(conversation, force_new=True)
-            events = pipeline.hermes.chat_stream_events(sid2, text, timeout)
-        parts: list[str] = []
-        for kind, value in events:
-            if kind == "text":
-                parts.append(value)
-            elif kind == "tool":
-                out["tools"].append(json.loads(value))
-            elif kind == "run":
-                out["run_id"] = value
-            elif kind == "final":
-                info = json.loads(value)
-                if info.get("content"):
-                    parts = [info["content"]]
+            parts = consume(HERMES.get_session_id(conversation))
+        except RuntimeError as exc:
+            if "404" not in str(exc):
+                raise
+            # stale session id (e.g. profile switch / DB reset) -> recreate once
+            out["tools"].clear()
+            parts = consume(HERMES.get_session_id(conversation, force_new=True))
         out["text"] = "".join(parts).strip()
 
     try:
@@ -780,11 +819,14 @@ async def usage() -> JSONResponse:
         },
         "elevenlabs": None,
     }
-    # ElevenLabs subscription (cached 5 min)
+    # ElevenLabs subscription — NEVER blocks the response: serve the cache and
+    # refresh it in the background when stale.
     now = time.time()
-    if _ELEVEN_CACHE["data"] is None or now - _ELEVEN_CACHE["ts"] > 300:
+    if (_ELEVEN_CACHE["data"] is None or now - _ELEVEN_CACHE["ts"] > 300) and not _ELEVEN_CACHE.get("refreshing"):
         key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("ELEVEN_API_KEY") or os.environ.get("XI_API_KEY")
         if key:
+            _ELEVEN_CACHE["refreshing"] = True
+
             def fetch() -> dict | None:
                 try:
                     r = requests.get("https://api.elevenlabs.io/v1/user/subscription",
@@ -801,21 +843,65 @@ async def usage() -> JSONResponse:
                 except Exception:
                     pass
                 return None
-            data = await asyncio.to_thread(fetch)
-            if data is not None:
-                _ELEVEN_CACHE.update(ts=now, data=data)
+
+            async def refresh() -> None:
+                try:
+                    data = await asyncio.to_thread(fetch)
+                    if data is not None:
+                        _ELEVEN_CACHE.update(ts=time.time(), data=data)
+                finally:
+                    _ELEVEN_CACHE["refreshing"] = False
+
+            asyncio.get_running_loop().create_task(refresh())
     out["elevenlabs"] = _ELEVEN_CACHE["data"]
     return JSONResponse(out)
 
 
+WS_CLIENTS: set = set()
+
+
+@app.post("/api/summon")
+async def summon(request: Request) -> JSONResponse:
+    """Broadcast a holographic media panel to all connected HUD clients.
+
+    Body: {"media": "video"|"iframe"|"image", "src": "...", "title": "...",
+           "position": "center"|"left"|"right"}  or  {"action": "dismiss"}
+    Hermes can call this (curl with X-Jarvis-Token) to display media on the HUD.
+    """
+    body = await request.json()
+    if body.get("action") == "dismiss":
+        payload = {"type": "dismiss_panels"}
+    else:
+        payload = {"type": "summon_panel",
+                   "media": body.get("media") or body.get("type") or "iframe",
+                   "src": body.get("src", ""),
+                   "title": body.get("title", "INCOMING FEED"),
+                   "position": body.get("position", "center")}
+    sent = 0
+    for client in list(WS_CLIENTS):
+        try:
+            await client.send_json(payload)
+            sent += 1
+        except Exception:
+            WS_CLIENTS.discard(client)
+    return JSONResponse({"sent_to": sent})
+
+
+_WORKER_CACHE: dict = {"ts": 0.0, "data": [], "refreshing": False}
+
+
 @app.get("/api/machines")
 async def machines() -> JSONResponse:
-    """Local (Mac) stats + configured remote workers."""
+    """Local (Mac) stats + configured remote workers.
+
+    Worker polls can take seconds when a worker is offline, so they run in a
+    background refresh; the endpoint always answers instantly from cache.
+    """
     result: list[dict] = []
     mac: dict = {"name": "MAC MINI · HERMES", "online": True}
     if psutil:
         mac.update({
-            "cpu": psutil.cpu_percent(interval=0.2),
+            "cpu": psutil.cpu_percent(interval=0.1),
             "mem": psutil.virtual_memory().percent,
             "disk": psutil.disk_usage(str(ROOT)).percent,
         })
@@ -833,7 +919,6 @@ async def machines() -> JSONResponse:
                     return info
             except Exception:
                 pass
-        # fallback: bare TCP reachability
         import socket
         try:
             with socket.create_connection((w.get("host"), int(w.get("ping_port", 445))), timeout=1.5):
@@ -843,8 +928,21 @@ async def machines() -> JSONResponse:
             pass
         return info
 
-    for w in CFG.get("machines") or []:
-        result.append(await asyncio.to_thread(poll_worker, w))
+    workers = CFG.get("machines") or []
+    now = time.time()
+    if workers and now - _WORKER_CACHE["ts"] > 10 and not _WORKER_CACHE["refreshing"]:
+        _WORKER_CACHE["refreshing"] = True
+
+        async def refresh() -> None:
+            try:
+                data = [await asyncio.to_thread(poll_worker, w) for w in workers]
+                _WORKER_CACHE.update(ts=time.time(), data=data)
+            finally:
+                _WORKER_CACHE["refreshing"] = False
+
+        asyncio.get_running_loop().create_task(refresh())
+    result.extend(_WORKER_CACHE["data"] or
+                  [{"name": w.get("name", "worker"), "online": False, "note": "checking..."} for w in workers])
     return JSONResponse({"machines": result})
 
 
@@ -1047,6 +1145,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         await ws.close(code=4401)
         return
     await ws.accept()
+    WS_CLIENTS.add(ws)
     pipeline = get_pipeline()
     conn = ConnState(conversation=(CFG.get("hermes") or {}).get("conversation", "jarvis-main"))
     await ws.send_json({"type": "status", "message": "Hermes voice server connected."})
@@ -1100,6 +1199,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         if conn.turn_task and not conn.turn_task.done():
             conn.turn_task.cancel()
         print("Client disconnected", flush=True)
+    finally:
+        WS_CLIENTS.discard(ws)
 
 
 def main() -> int:

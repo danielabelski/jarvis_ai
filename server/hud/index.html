@@ -135,8 +135,74 @@ body.booted header{animation:panelIn .4s backwards}
 @keyframes panelIn{0%{opacity:0; transform:translateY(10px)}55%{opacity:.45}65%{opacity:.95}
   75%{opacity:.35}85%{opacity:1}100%{opacity:1; transform:none}}
 
+/* ---------------- holographic media panels ---------------- */
+#holoStage{position:fixed; inset:0; z-index:38; pointer-events:none;
+  perspective:1200px; transform-style:preserve-3d; overflow:hidden}
+#grid{transition:transform .45s ease, filter .45s ease}
+#grid.dolly{transform:scale(1.02); filter:brightness(.7)}
+.holo{position:absolute; pointer-events:auto; transform-style:preserve-3d;
+  --enterRotY:-20deg; --bankX:0px;
+  width:min(62vw,900px); height:min(58vh,540px);
+  left:50%; top:45%; translate:-50% -50%;
+  background:#081523f2; border:1px solid var(--cyan-dim);
+  box-shadow:0 0 40px #00e5ff33, inset 0 0 60px #00e5ff0a;
+  clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px));
+  animation:holoApproach .65s cubic-bezier(.34,1.56,.64,1) both}
+.holo.pos-left{left:19%; --enterRotY:38deg; --bankX:-55vw; width:min(31vw,480px); height:min(40vh,380px)}
+.holo.pos-right{left:81%; --enterRotY:-38deg; --bankX:55vw; width:min(31vw,480px); height:min(40vh,380px)}
+@keyframes holoApproach{
+  0%{opacity:0; filter:blur(10px) brightness(2.2);
+     transform:translateX(var(--bankX)) translateZ(-800px) rotateX(35deg) rotateY(var(--enterRotY)) scale(.3)}
+  55%{opacity:.85; filter:blur(2px) brightness(1.45);
+     transform:translateX(calc(var(--bankX)*.15)) translateZ(-160px) rotateX(8deg) rotateY(calc(var(--enterRotY)*.35)) scale(.92)}
+  100%{opacity:1; filter:none; transform:translateX(0) translateZ(0) rotateX(0) rotateY(0) scale(1)}}
+.holo.idle{animation:holoIdle 4s ease-in-out infinite}
+@keyframes holoIdle{
+  0%,100%{transform:translateY(0); box-shadow:0 0 40px #00e5ff33, inset 0 0 60px #00e5ff0a}
+  50%{transform:translateY(-3px); box-shadow:0 0 54px #00e5ff4d, inset 0 0 60px #00e5ff14}}
+.holo.dismiss{animation:holoDismiss .6s cubic-bezier(.55,0,.85,.36) both}
+.holo.dismiss .holoContentWrap{filter:saturate(0) brightness(1.6) contrast(1.4)}
+@keyframes holoDismiss{
+  0%{opacity:1; transform:none; filter:none}
+  35%{opacity:.9; filter:blur(1px) brightness(1.5)}
+  100%{opacity:0; filter:blur(14px);
+    transform:translateX(calc(var(--bankX)*-.3)) translateZ(-900px) rotateX(-25deg) rotateY(calc(var(--enterRotY)*-1)) scale(.25)}}
+.holoFrame{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
+.holoFrame rect{fill:none; stroke:var(--cyan); stroke-width:1.5; opacity:.9;
+  stroke-dasharray:100; stroke-dashoffset:100; animation:holoTrace .5s linear .15s forwards}
+@keyframes holoTrace{to{stroke-dashoffset:0}}
+.holoFrame path{fill:none; stroke:var(--cyan); stroke-width:2.5; opacity:0;
+  filter:drop-shadow(0 0 5px var(--cyan)); animation:holoCorner .12s steps(2) .55s forwards}
+@keyframes holoCorner{to{opacity:1}}
+.holoBar{position:absolute; top:0; left:0; right:0; height:30px; z-index:3; display:flex;
+  align-items:center; justify-content:space-between; padding:0 12px;
+  border-bottom:1px solid var(--line); background:#08152399;
+  font-family:'Orbitron'; font-size:10px; letter-spacing:3px; color:var(--cyan)}
+.holoBar .hx{cursor:pointer; color:var(--red); font-size:13px; padding:0 4px}
+.holoContentWrap{position:absolute; inset:30px 8px 8px 8px; opacity:0;
+  animation:holoBodyIn .3s steps(3) .35s forwards; overflow:hidden; background:#050b14}
+@keyframes holoBodyIn{0%{opacity:0}45%{opacity:.35}70%{opacity:.85}100%{opacity:1}}
+.holoContent{width:100%; height:100%; border:0; object-fit:contain; background:#050b14}
+.holoHex{position:absolute; inset:30px 8px 8px 8px; pointer-events:none; opacity:.5;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='32'%3E%3Cpath d='M14 1 27 8.5v15L14 31 1 23.5v-15z' fill='none' stroke='%2300e5ff' stroke-opacity='.3'/%3E%3C/svg%3E");
+  animation:holoHexOut .4s ease .65s forwards}
+@keyframes holoHexOut{to{opacity:0}}
+.holoScan{position:absolute; inset:30px 8px 8px 8px; pointer-events:none; z-index:2; opacity:0;
+  background:linear-gradient(180deg, transparent 0%, #00e5ff22 44%, #00e5ffbb 50%, #00e5ff22 56%, transparent 100%);
+  background-size:100% 300%; animation:holoScanSweep .42s linear .33s}
+@keyframes holoScanSweep{0%{opacity:1; background-position:0 -100%}100%{opacity:0; background-position:0 200%}}
+.holoChroma{position:absolute; inset:0; pointer-events:none; z-index:2; mix-blend-mode:screen;
+  opacity:0; animation:holoChromaFlick .38s steps(4) .35s}
+.holoChroma.c1{box-shadow:inset 0 0 0 2px #ff00ff66; transform:translateX(2px)}
+.holoChroma.c2{box-shadow:inset 0 0 0 2px #00ffff66; transform:translateX(-2px)}
+@keyframes holoChromaFlick{0%{opacity:.85}60%{opacity:.4}100%{opacity:0}}
+.holoBoot{position:absolute; right:12px; bottom:8px; z-index:3; pointer-events:none;
+  font-family:monospace; font-size:9px; line-height:1.3; color:var(--teal);
+  text-align:right; opacity:.85; transition:opacity .6s}
+
 /* ---------------- mobile / narrow screens ---------------- */
 @media (max-width:880px){
+  .holo,.holo.pos-left,.holo.pos-right{width:94vw; height:50vh; left:50%}
   body{overflow-y:auto; overflow-x:hidden}
   #grid{display:flex; flex-direction:column; height:auto; min-height:100dvh; gap:8px}
   header{position:sticky; top:0; z-index:15; flex-shrink:0}
@@ -269,6 +335,8 @@ footer{
       <div id="jobsList"><div>—</div></div>
     </div>
   </div>
+
+  <div id="holoStage"></div>
 
   <div id="viewer">
     <div id="viewerBox">
@@ -420,7 +488,9 @@ function connect(){
   ws.onmessage=ev=>{
     if(ev.data instanceof ArrayBuffer){playChunk(ev.data);return}
     let e; try{e=JSON.parse(ev.data)}catch{return}
-    if(e.type==="partial_transcript"){ showLive(e.text); }
+    if(e.type==="summon_panel"){ summonPanel(e); }
+    else if(e.type==="dismiss_panels"){ dismissAllPanels(); }
+    else if(e.type==="partial_transcript"){ showLive(e.text); }
     else if(e.type==="transcript"){ clearLive(); if(e.text)addMsg("you",e.text); }
     else if(e.type==="run_started"){ currentRun=e.run_id; showStop(true); }
     else if(e.type==="approval_request"){ showApproval(e); }
@@ -559,7 +629,9 @@ $("viewerPop").onclick=()=>{window.open($("viewerIframe").src,"_blank");closeVie
 $("viewer").addEventListener("click",e=>{if(e.target.id==="viewer")closeView()});
 addEventListener("keydown",e=>{
   if(e.key!=="Escape")return;
-  if($("viewer").classList.contains("open"))closeView(); else stopRun();
+  if(document.querySelector(".holo:not(.dismiss)"))dismissAllPanels();
+  else if($("viewer").classList.contains("open"))closeView();
+  else stopRun();
 });
 addEventListener("keydown",e=>{
   if(e.code==="Space"&&document.activeElement!==$("chatInput")){e.preventDefault();toggleTalk()}
@@ -655,6 +727,94 @@ refreshHealth();refreshSkills();refreshJobs();refreshMachines();refreshUsage();
 setInterval(refreshUsage,60000);
 setInterval(refreshHealth,15000); setInterval(refreshJobs,60000); setInterval(refreshMachines,10000);
 setInterval(refreshSkills,120000);
+
+/* ====================== holographic media panels ==================== */
+function holoWhoosh(up=true){
+  try{
+    ensureCtx();
+    if(!audioCtx || audioCtx.state!=="running") return;   // needs prior user gesture
+    const t=audioCtx.currentTime;
+    const o1=audioCtx.createOscillator(), o2=audioCtx.createOscillator(), g=audioCtx.createGain();
+    const f0=up?150:850, f1=up?850:120;
+    o1.type="sawtooth"; o2.type="sine";
+    o1.frequency.setValueAtTime(f0,t); o1.frequency.exponentialRampToValueAtTime(f1,t+.42);
+    o2.frequency.setValueAtTime(f0*2.02,t); o2.frequency.exponentialRampToValueAtTime(f1*2.02,t+.42);
+    g.gain.setValueAtTime(.0001,t);
+    g.gain.exponentialRampToValueAtTime(.11,t+.07);
+    g.gain.exponentialRampToValueAtTime(.0001,t+.55);
+    o1.connect(g); o2.connect(g); g.connect(audioCtx.destination);
+    o1.start(t); o2.start(t); o1.stop(t+.6); o2.stop(t+.6);
+  }catch{}
+}
+function holoBootTicker(el){
+  const lines=()=>Array.from({length:3},()=>
+    "0x"+Math.random().toString(16).slice(2,8).toUpperCase()+"  "+
+    (Math.random()*90).toFixed(4)+"N "+(Math.random()*180).toFixed(4)+"W");
+  el.innerHTML=lines().join("<br>");
+  const iv=setInterval(()=>{el.innerHTML=lines().join("<br>")},65);
+  setTimeout(()=>{clearInterval(iv); el.style.opacity="0";
+    setTimeout(()=>el.remove(),700)},1000);
+}
+function embedURL(src){
+  const yt=src.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]{6,})/);
+  if(yt) return `https://www.youtube.com/embed/${yt[1]}?autoplay=1`;
+  return src;
+}
+let lastSummon={key:"",t:0};
+function summonPanel(opts){
+  const o=opts||{};
+  const media=o.media||o.type||"iframe", src=o.src||"", title=(o.title||"INCOMING FEED").toUpperCase();
+  // dedupe: stale WS reconnects can deliver the same broadcast multiple times
+  const key=media+"|"+src+"|"+title;
+  if(key===lastSummon.key && Date.now()-lastSummon.t<8000) return null;
+  lastSummon={key, t:Date.now()};
+  const position=["left","right","center"].includes(o.position)?o.position:"center";
+  const p=document.createElement("div");
+  p.className="holo pos-"+position; p.dataset.fx="hologram";
+  let inner="";
+  const esrc=encodeURI(src);
+  if(media==="image") inner=`<img class="holoContent" src="${esrc}" alt="">`;
+  else if(media==="video" && !/youtube|youtu\.be/.test(src))
+    inner=`<video class="holoContent" src="${esrc}" controls autoplay playsinline></video>`;
+  else inner=`<iframe class="holoContent" src="${embedURL(src)}" allow="autoplay; fullscreen; encrypted-media"></iframe>`;
+  p.innerHTML=`
+    <svg class="holoFrame" preserveAspectRatio="none" viewBox="0 0 100 100">
+      <rect x="0.5" y="0.5" width="99" height="99" pathLength="100" vector-effect="non-scaling-stroke"/>
+      <path d="M0.5 8 V0.5 H8" vector-effect="non-scaling-stroke"/>
+      <path d="M92 0.5 H99.5 V8" vector-effect="non-scaling-stroke"/>
+      <path d="M99.5 92 V99.5 H92" vector-effect="non-scaling-stroke"/>
+      <path d="M8 99.5 H0.5 V92" vector-effect="non-scaling-stroke"/>
+    </svg>
+    <div class="holoBar"><span>◈ ${title}</span><span class="hx" title="dismiss">✕</span></div>
+    <div class="holoContentWrap">${inner}</div>
+    <div class="holoHex"></div>
+    <div class="holoScan"></div>
+    <div class="holoChroma c1"></div>
+    <div class="holoChroma c2"></div>
+    <div class="holoBoot"></div>`;
+  $("holoStage").appendChild(p);
+  holoWhoosh(true);
+  // camera dolly: the whole HUD recedes briefly while the panel arrives
+  document.getElementById("grid").classList.add("dolly");
+  setTimeout(()=>document.getElementById("grid").classList.remove("dolly"),900);
+  holoBootTicker(p.querySelector(".holoBoot"));
+  p.addEventListener("animationend",e=>{
+    if(e.animationName==="holoApproach") p.classList.add("idle");
+    if(e.animationName==="holoDismiss") p.remove();
+  });
+  p.querySelector(".hx").onclick=()=>dismissPanel(p);
+  addActivity("hologram: "+title.toLowerCase());
+  return p;
+}
+function dismissPanel(p){
+  if(!p||p.classList.contains("dismiss"))return;
+  p.classList.remove("idle");
+  holoWhoosh(false);
+  p.classList.add("dismiss");
+  setTimeout(()=>p.remove(),700);  // safety net if animationend is missed
+}
+function dismissAllPanels(){document.querySelectorAll(".holo").forEach(dismissPanel)}
+window.summonPanel=summonPanel; window.dismissAllPanels=dismissAllPanels;
 
 /* ============================== auth gate ========================== */
 async function checkAuth(){

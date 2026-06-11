@@ -27,6 +27,11 @@ The HUD around the ring is a real control center:
   what you heard and what you didn't
 - **Embedded dashboards** — Hermes' kanban board and session browser pop up
   in animated viewers, fully interactive
+- **Holographic media panels** — say *"show me a video of how arc reactors
+  work, on screen"* and a panel swoops in from Z-depth, traces its frame,
+  materializes through a scanline, and plays the video. The agent drives it
+  through a bundled Hermes plugin (`hud_display`); panels can fly into
+  left/right thirds, and "clear the screen" sweeps them away
 - **Usage tracking** — tokens/day, turns, ElevenLabs quota bar
 - **Machines panel** — live CPU/GPU stats for the host and remote workers
 - **Cinematic boot** — press `B`: panels flicker in, ring spins up,
@@ -86,7 +91,8 @@ hermes gateway   # or set up its LaunchAgent / service
 git clone https://github.com/YOURNAME/jarvis-hermes-hud
 cd jarvis-hermes-hud/server
 python3 -m venv .venv
-.venv/bin/pip install fastapi uvicorn requests pyyaml numpy anthropic RealtimeSTT websockets psutil
+.venv/bin/pip install fastapi uvicorn requests pyyaml numpy anthropic \
+    RealtimeSTT faster-whisper silero-vad websockets psutil
 cp config/server.example.yaml config/server.yaml   # edit: your ElevenLabs voice_id etc.
 scripts/make-certs.sh                              # self-signed TLS (browser mic needs it)
 scripts/make-boot-audio.sh YourName                # one-time boot greeting synthesis
@@ -120,7 +126,8 @@ server/hud/      single-file HUD (vanilla JS, no build step)
 server/scripts/  start/stop/health/smoke + cert & boot-audio generators
 client/          optional Windows/Linux push-to-talk Python client (wake word capable)
 worker/          optional GPU sidecars: big-model STT server + stats agent for the Machines panel
-launchd/         macOS auto-start templates with hard-won TCC notes
+hermes-plugin/   Hermes tool plugin: lets the agent summon/dismiss HUD media panels
+launchd/         macOS auto-start templates with hard-won TCC + FD-limit notes
 docs/            SETUP, ARCHITECTURE (protocols/endpoints), TROUBLESHOOTING
 ```
 
