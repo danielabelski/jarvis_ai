@@ -7,7 +7,9 @@
    PCM over WebSocket `/ws`.
 2. While you speak, the server runs incremental Whisper passes every ~1.2 s
    and emits `partial_transcript` events (live captions).
-3. On stop: final Whisper pass → transcript sent to Hermes via its **Sessions
+3. On stop: final transcription — the server first tries the optional **GPU
+   STT worker** (`stt.remote`, big model, ~0.2 s) and falls back to local
+   Whisper if it's unreachable — then the transcript goes to Hermes via its **Sessions
    API** (`POST /api/sessions/{id}/chat/stream`, SSE). Session ids persist in
    `logs/hermes_sessions.json` per conversation name, so memory survives
    restarts. Typed chat (`/api/chat`) uses the *same* session.
@@ -85,3 +87,11 @@ behind Hermes; the second is the Whisper model size.
    the per-device cert trust.
 5. **ElevenLabs frames** arrive at arbitrary byte boundaries; decode only
    complete int16 pairs and carry the leftover byte.
+6. **Near-silent audio** makes faster-whisper raise ("No clip timestamps
+   found") — both STT paths treat any transcription exception as an empty
+   transcript rather than failing the turn.
+7. **Windows venv + NVIDIA pip wheels**: locate the cuBLAS/cuDNN DLLs via
+   `sys.prefix` (`site.getsitepackages()` misses the venv) and
+   `os.add_dll_directory` them before importing ctranslate2.
+8. **Startup**: listeners open immediately; the local Whisper fallback warms
+   in the background (a restart leaves only ~10-15 s of launchd respawn gap).

@@ -311,15 +311,46 @@ class VoicePipelineServer:
     async def transcribe(self, audio: bytes, timing: TurnTiming | None = None) -> str:
         if timing:
             timing.stt_start_monotonic = time.perf_counter()
+        # 1) GPU worker (if configured and reachable) — big model, ~0.3s
+        remote = self.cfg["stt"].get("remote") or {}
+        if remote.get("url"):
+            text = await asyncio.to_thread(self._remote_stt, audio, remote)
+            if text is not None:
+                if timing:
+                    timing.stt_model = f"remote:{remote.get('name', 'gpu')}"
+                    timing.stt_final_monotonic = time.perf_counter()
+                return text
+        # 2) local Whisper fallback
         sample_rate = int(self.cfg["stt"].get("sample_rate", 16000))
         samples = (np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0).copy()
-        async with self.stt_lock:
-            self.recorder.feed_audio(samples, original_sample_rate=sample_rate)
-            text = await asyncio.to_thread(self.recorder.perform_final_transcription, samples, True)
-            self.recorder.clear_audio_queue()
+        try:
+            async with self.stt_lock:
+                self.recorder.feed_audio(samples, original_sample_rate=sample_rate)
+                text = await asyncio.to_thread(self.recorder.perform_final_transcription, samples, True)
+                self.recorder.clear_audio_queue()
+        except Exception as exc:
+            # near-silent audio can make whisper raise ("No clip timestamps found");
+            # treat as empty transcript instead of failing the turn
+            print(f"local STT error treated as empty transcript: {exc}", flush=True)
+            text = ""
         if timing:
             timing.stt_final_monotonic = time.perf_counter()
         return (text or "").strip()
+
+    def _remote_stt(self, audio: bytes, remote: dict) -> str | None:
+        """POST raw PCM to the GPU STT worker. None = unavailable (use fallback)."""
+        headers = {"Content-Type": "application/octet-stream"}
+        token = os.environ.get(remote.get("token_env", "JARVIS_HUD_TOKEN"), "")
+        if token:
+            headers["X-Jarvis-Token"] = token
+        try:
+            r = requests.post(remote["url"], data=audio, headers=headers,
+                              timeout=float(remote.get("timeout", 6)))
+            if r.ok:
+                return (r.json().get("text") or "").strip()
+        except Exception:
+            pass
+        return None
 
     # ------------------------------------------------------------------ LLM
 
@@ -598,8 +629,12 @@ app = FastAPI(title="Hermes Voice Pipeline")
 
 @app.on_event("startup")
 async def warm_pipeline() -> None:
-    await asyncio.to_thread(get_pipeline)
-    print("STT pipeline warmed.", flush=True)
+    """Warm the local Whisper fallback in the BACKGROUND — listeners open
+    immediately (the GPU worker handles STT while the local model loads)."""
+    async def warm() -> None:
+        await asyncio.to_thread(get_pipeline)
+        print("STT pipeline warmed.", flush=True)
+    asyncio.get_running_loop().create_task(warm())
 
 
 # ------------------------------------------------------------------ Auth

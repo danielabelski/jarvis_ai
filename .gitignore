@@ -7,6 +7,10 @@ server/logs/
 server/hud/audio/
 server/hud/jarvis.cer
 
+# worker local files
+worker/run-stt.bat
+worker/stt_server.log
+
 # python
 __pycache__/
 *.pyc

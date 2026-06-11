@@ -33,6 +33,9 @@ The HUD around the ring is a real control center:
   "Systems online. Good morning."
 - **Privacy filter** — secret-shaped strings are redacted before any text
   reaches cloud TTS
+- **Optional GPU ears** — point it at any NVIDIA machine on your LAN running
+  the included sidecar and transcription jumps to `large-v3-turbo` at ~0.2 s,
+  with automatic fallback to local Whisper when that machine is off
 - **Mobile-ready** — responsive layout + Add to Home Screen = full-screen
   Jarvis app on your phone
 
@@ -116,7 +119,7 @@ server/          FastAPI voice pipeline + HUD host (the core of this project)
 server/hud/      single-file HUD (vanilla JS, no build step)
 server/scripts/  start/stop/health/smoke + cert & boot-audio generators
 client/          optional Windows/Linux push-to-talk Python client (wake word capable)
-worker/          optional GPU-worker stats agent for the Machines panel
+worker/          optional GPU sidecars: big-model STT server + stats agent for the Machines panel
 launchd/         macOS auto-start templates with hard-won TCC notes
 docs/            SETUP, ARCHITECTURE (protocols/endpoints), TROUBLESHOOTING
 ```

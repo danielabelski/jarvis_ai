@@ -121,6 +121,23 @@ python client.py --push-to-talk --server ws://YOUR_HOST:8765/ws --list-devices
 `worker/worker_stats.py` to the worker machine, `pip install psutil`, run it,
 and point a `machines:` entry's `stats_url` at `http://worker-ip:8767/stats`.
 
+**GPU speech recognition** — the single biggest quality upgrade if you own any
+NVIDIA machine on the LAN. On that machine:
+
+```
+cd worker
+python -m venv .venv
+.venv/Scripts/pip install faster-whisper fastapi uvicorn nvidia-cublas-cu12 nvidia-cudnn-cu12
+copy run-stt.example.bat run-stt.bat    # fill in your JARVIS_HUD_TOKEN value
+run-stt.bat
+```
+
+Then uncomment the `stt.remote:` block in the server's `server.yaml` (point
+`url` at the GPU machine) and restart the voice server. Result: `large-v3-turbo`
+accuracy at ~0.2 s per utterance, with automatic fallback to the local model
+whenever the GPU machine is off. For auto-start at Windows logon, drop a
+`JarvisSTT.vbs` in `shell:startup` (template in the .bat comments).
+
 **Phone app feel**: open the HUD in Safari/Chrome on your phone →
 Share → Add to Home Screen.
 

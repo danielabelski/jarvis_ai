@@ -43,6 +43,18 @@ API key the User → Read permission in the ElevenLabs dashboard.
 v0.16, session runs aren't registered in the runs store (`/stop` 404s); the
 halt works by dropping the SSE stream. Newer Hermes builds may fix this.
 
+**"No clip timestamps found. Set 'vad_filter'..." error** — old build; current
+code treats silent/unintelligible audio as an empty transcript on both the
+local and GPU STT paths.
+
+**GPU STT: "Library cublas64_12.dll is not found"** — the NVIDIA pip wheels
+aren't on the DLL search path. Use the shipped `worker/stt_server.py` (it
+resolves them via `sys.prefix`) and install `nvidia-cublas-cu12
+nvidia-cudnn-cu12` into the same venv.
+
+**HUD unreachable for ~15 s after a restart** — normal: launchd's respawn
+throttle. If it lasts longer, run `scripts/jarvis-health.sh` on the host.
+
 **Phone can't reach jarvis.local** — some Android versions lack mDNS; use the
 raw IP (and add it to `security.extra_origin_hosts` in server.yaml so the
 WebSocket origin check accepts it).
